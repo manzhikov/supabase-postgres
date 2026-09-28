@@ -6,14 +6,17 @@
 # (entrypoint untouched), so the same image serves the migration step.
 ARG BASE=ghcr.io/manzhikov/supabase-postgres@sha256:878b338f61fe749a0f6946c44e4dfc68c8f19b3ab2190e7a7cbe63ab2ae571b8
 
-FROM golang:1.25-alpine AS walg
+# Toolchain as upstream builds v3.0.9 (go.mod: go 1.25.11; Makefile: GOEXPERIMENT=jsonv2).
+FROM golang:1.26.8-alpine AS walg
 ARG WALG_VERSION=v3.0.9
 RUN apk add --no-cache git
 RUN git clone --depth 1 --branch ${WALG_VERSION} https://github.com/wal-g/wal-g /src
 WORKDIR /src
 # Static, no cgo: default codecs (lz4, zstd via pure-Go, lzma) are enough for us;
 # brotli/lzo need cgo and are not used.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /wal-g ./main/pg && /wal-g --version
+RUN GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X github.com/wal-g/wal-g/cmd/pg.walgVersion=${WALG_VERSION}" \
+      -o /wal-g ./main/pg && /wal-g --version
 
 FROM ${BASE}
 ARG PATRONI_VERSION=4.1.5

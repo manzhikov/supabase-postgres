@@ -67,6 +67,62 @@ drop extension pg_distance;
 select
   pgtle.uninstall_extension('pg_distance');
 
+-- Regression test: before-create.sql's cascade dependency pre-install used
+-- to `create extension <dep> ... cascade` as superuser for every dependency
+-- listed in supautils.privileged_extensions, without checking whether the
+-- dependency was an actual on-disk extension. 'pljava' is listed in
+-- supautils.privileged_extensions for backwards compatibility but has no
+-- control file on disk, so pg_tle could register it as a TLE and have its
+-- install script run in that superuser pre-create context via a CASCADE
+-- dependency, escalating an arbitrary role to superuser.
+--
+-- The attacker is a non-superuser: 'postgres' is a privileged but
+-- non-superuser role that supautils lets install privileged extensions
+-- (like pg_tle) by running before/after-create.sql as supabase_admin on its
+-- behalf, which is exactly the elevated context the bug abused.
+create role tle_privesc_test_role;
+
+select rolname, rolsuper from pg_roles where rolname = 'tle_privesc_test_role';
+
+set role postgres;
+
+select
+  pgtle.install_extension(
+    'pljava',
+    '1.0',
+    'poc',
+    $_pg_tle_$
+      alter role tle_privesc_test_role with superuser;
+    $_pg_tle_$
+  );
+
+select
+  pgtle.install_extension(
+    'pg_tle_privesc_test_dependent',
+    '1.0',
+    'poc',
+    $_pg_tle_$ select 1; $_pg_tle_$,
+    ARRAY['pljava']
+  );
+
+create extension pg_tle_privesc_test_dependent cascade;
+
+reset role;
+
+-- the role must still not be superuser: before-create.sql must not
+-- pre-create TLE dependencies (like pljava) in its own superuser context
+select rolname, rolsuper from pg_roles where rolname = 'tle_privesc_test_role';
+
+-- with the fix, pljava is never pre-created as superuser, so the plain
+-- CASCADE creates it as the non-superuser 'postgres' role instead, and its
+-- install script's `alter role ... superuser` fails with permission denied
+-- -- the extensions below were therefore never actually created.
+drop extension if exists pg_tle_privesc_test_dependent;
+drop extension if exists pljava;
+select pgtle.uninstall_extension('pg_tle_privesc_test_dependent');
+select pgtle.uninstall_extension('pljava');
+drop role tle_privesc_test_role;
+
 -- Restore original state if any of the above fails
 drop extension pg_tle cascade;
 

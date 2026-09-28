@@ -14,6 +14,10 @@ on:
       tag:
         description: "Image tag (e.g. 15.19.0.001-tatnet1)"
         required: true
+      dockerfile:
+        description: "Dockerfile-15 (upstream image) or Dockerfile-15-patroni (HA layer on top)"
+        required: true
+        default: Dockerfile-15
 
 permissions:
   contents: read
@@ -45,8 +49,8 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile-15
-          target: production
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.dockerfile == 'Dockerfile-15' && 'production' || '' }}
           platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/supabase-postgres:${{ inputs.tag }}

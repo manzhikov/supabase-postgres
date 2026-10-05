@@ -12,6 +12,10 @@ stdenv.mkDerivation rec {
 
   buildInputs = [ postgresql ];
 
+  # Shared PostgreSQL hosts have one owner role per project. Validate both
+  # dimensions before indexing and expose the actual compiled capacity.
+  patches = [ ./supautils/grant-capacity.patch ];
+
   src = fetchFromGitHub {
     owner = "supabase";
     repo = pname;
